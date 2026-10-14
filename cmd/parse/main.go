@@ -118,5 +118,8 @@ func main() {
 		fmt.Printf("%d, %s -> %s\n", i+1, name, href)
 		company := parseCard(href)
 		fmt.Println(company)
+		if err := storage.Save(db, company); err != nil {
+			log.Printf("Ошибка сохранения: %v", err)
+		}
 	})
 }

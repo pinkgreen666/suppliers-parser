@@ -51,7 +51,7 @@ func Open(path string) (*sql.DB, error) {
 
 func Save(db *sql.DB, c models.Company) error {
 	_, err := db.Exec(`
-        INSERT INTO companies
+        INSERT INTO company
             (source, url, name, official_name, inn, ogrn,
              address, phone, email, site, telegram, vk, youtube)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -66,8 +66,7 @@ func Save(db *sql.DB, c models.Company) error {
             site          = excluded.site,
             telegram      = excluded.telegram,
             vk            = excluded.vk,
-            youtube       = excluded.youtube,
-            parsed_at     = CURRENT_TIMESTAMP
+            youtube       = excluded.youtube
     `, c.Source, c.URL, c.Name, c.OfficialName, c.INN, c.OGRN,
 		c.Address, c.Phone, c.Email, c.Site, c.Telegram, c.VK, c.Youtube)
 	return err
@@ -76,7 +75,7 @@ func Save(db *sql.DB, c models.Company) error {
 func Exists(db *sql.DB, source, url string) (bool, error) {
 	var exists bool
 	err := db.QueryRow(
-		"SELECT EXISTS(SELECT 1 FROM companies WHERE source = ? AND url = ?)",
+		"SELECT EXISTS(SELECT 1 FROM company WHERE source = ? AND url = ?)",
 		source, url,
 	).Scan(&exists)
 	return exists, err
