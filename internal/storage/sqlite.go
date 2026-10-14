@@ -66,7 +66,8 @@ func Save(db *sql.DB, c models.Company) error {
             site          = excluded.site,
             telegram      = excluded.telegram,
             vk            = excluded.vk,
-            youtube       = excluded.youtube
+            youtube       = excluded.youtube,
+            updated       = datetime('now', 'localtime')
     `, c.Source, c.URL, c.Name, c.OfficialName, c.INN, c.OGRN,
 		c.Address, c.Phone, c.Email, c.Site, c.Telegram, c.VK, c.Youtube)
 	return err

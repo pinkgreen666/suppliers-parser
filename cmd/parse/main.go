@@ -96,30 +96,36 @@ func main() {
 	}
 	defer db.Close()
 
-	req, _ := http.NewRequest("GET", url, nil)
+	for i := range 5 {
+		page := fmt.Sprintf("?page=%d", i)
+		url_page := url + page
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer resp.Body.Close()
+		req, _ := http.NewRequest("GET", url_page, nil)
 
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Println("Title:", doc.Find("title").Text())
-	fmt.Println("Кол-во field-content:", doc.Find("div.field-content").Length())
-
-	doc.Find("div.field-content").Each(func(i int, s *goquery.Selection) {
-		name := s.Find("div.title-stroka h2").Text()
-		href, _ := s.Find("a.kartzagl").Attr("href")
-		fmt.Printf("%d, %s -> %s\n", i+1, name, href)
-		company := parseCard(href)
-		fmt.Println(company)
-		if err := storage.Save(db, company); err != nil {
-			log.Printf("Ошибка сохранения: %v", err)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			log.Fatal(err)
 		}
-	})
+		defer resp.Body.Close()
+
+		doc, err := goquery.NewDocumentFromReader(resp.Body)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		fmt.Println("Title:", doc.Find("title").Text())
+		fmt.Println("Кол-во field-content:", doc.Find("div.field-content").Length())
+
+		doc.Find("div.field-content").Each(func(i int, s *goquery.Selection) {
+			name := s.Find("div.title-stroka h2").Text()
+			href, _ := s.Find("a.kartzagl").Attr("href")
+			fmt.Printf("%d, %s -> %s\n", i+1, name, href)
+			company := parseCard(href)
+			fmt.Println(company)
+			if err := storage.Save(db, company); err != nil {
+				log.Printf("Ошибка сохранения: %v", err)
+			}
+		})
+	}
+
 }
