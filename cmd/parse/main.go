@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"suppliers-parser/internal/models"
+	"suppliers-parser/internal/storage"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -89,6 +90,12 @@ func parseCard(url string) models.Company {
 }
 
 func main() {
+	db, err := storage.Open("data.db")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+
 	req, _ := http.NewRequest("GET", url, nil)
 
 	resp, err := http.DefaultClient.Do(req)

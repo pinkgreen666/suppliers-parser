@@ -3,7 +3,7 @@ package models
 type Company struct {
 	Source       string
 	URL          string
-	CardName     string
+	Name         string
 	OfficialName string
 	INN          string
 	OGRN         string
