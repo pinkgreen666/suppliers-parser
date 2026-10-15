@@ -2,6 +2,7 @@ package storage
 
 import (
 	"database/sql"
+	"fmt"
 
 	"suppliers-parser/internal/models"
 
@@ -11,40 +12,15 @@ import (
 func Open(path string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("sql.Open: %w", err)
 	}
+
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 
 	if err := db.Ping(); err != nil {
 		db.Close()
-		return nil, err
-	}
-
-	_, err = db.Exec(`
-        CREATE TABLE IF NOT EXISTS company (
-			id            INTEGER PRIMARY KEY AUTOINCREMENT,
-			source        TEXT NOT NULL,
-			url           TEXT NOT NULL,
-			name          TEXT,
-			official_name TEXT,
-			inn           TEXT,
-			ogrn          TEXT,
-			address       TEXT,
-			phone         TEXT,
-			email         TEXT,
-			site          TEXT,
-			telegram      TEXT,
-			vk            TEXT,
-			youtube       TEXT,
-			is_active     INTEGER NOT NULL DEFAULT 1,
-			created       TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-			updated       TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-			UNIQUE(source, url)
-        );
-        CREATE INDEX IF NOT EXISTS idx_company_inn ON company(inn);
-    `)
-	if err != nil {
-		db.Close()
-		return nil, err
+		return nil, fmt.Errorf("ping: %w", err)
 	}
 
 	return db, nil
@@ -57,7 +33,7 @@ func nullIfEmpty(s string) any {
 	return s
 }
 
-func Save(db *sql.DB, c models.Company) error {
+func Save(db *sql.DB, c models.Company) (int64, error) {
 	_, err := db.Exec(`
         INSERT INTO company
             (source, url, name, official_name, inn, ogrn,
@@ -90,7 +66,14 @@ func Save(db *sql.DB, c models.Company) error {
 		nullIfEmpty(c.VK),
 		nullIfEmpty(c.Youtube),
 	)
-	return err
+
+	var id int64
+	err = db.QueryRow(
+		"SELECT id FROM company WHERE source = ? AND url = ?",
+		c.Source, c.URL,
+	).Scan(&id)
+	fmt.Println(id)
+	return id, err
 }
 
 func Exists(db *sql.DB, source, url string) (bool, error) {
