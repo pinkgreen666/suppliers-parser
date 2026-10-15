@@ -2,6 +2,7 @@ package storage
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 
 	"suppliers-parser/internal/models"
@@ -83,4 +84,69 @@ func Exists(db *sql.DB, source, url string) (bool, error) {
 		source, url,
 	).Scan(&exists)
 	return exists, err
+}
+
+func SavePriceList(db *sql.DB, pl models.PriceList) (int64, error) {
+	var id int64
+	err := db.QueryRow(
+		"SELECT id FROM price_list WHERE company_id = ? AND url = ?",
+		pl.CompanyID, pl.URL,
+	).Scan(&id)
+
+	if id == 0 {
+		result, err := db.Exec(
+			"INSERT INTO price_list (company_id, kind, title, url, file_path, items_json) VALUES (?, ?, ?, ?, ?, ?)",
+			pl.CompanyID, pl.Kind, pl.Title, pl.URL, pl.FilePath, pl.ItemsJSON,
+		)
+		if err != nil {
+			return 0, fmt.Errorf("INSERT price_list: %w", err)
+		}
+		id, _ = result.LastInsertId()
+	} else {
+		_, err = db.Exec(
+			"UPDATE price_list SET kind = ?, title = ?, file_path = ?, items_json = ?, updated = datetime('now', 'localtime') WHERE id = ?",
+			pl.Kind, pl.Title, pl.FilePath, pl.ItemsJSON, id,
+		)
+		if err != nil {
+			return 0, fmt.Errorf("UPDATE price_list: %w", err)
+		}
+	}
+	return id, nil
+}
+
+func GetPriceListsByCompany(db *sql.DB, companyID int64) ([]models.PriceList, error) {
+	rows, err := db.Query(
+		"SELECT id, company_id, kind, title, url, file_path, items_json, created, updated FROM price_list WHERE company_id = ? AND is_active = 1",
+		companyID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("SELECT price_list: %w", err)
+	}
+	defer rows.Close()
+
+	var priceLists []models.PriceList
+	for rows.Next() {
+		var pl models.PriceList
+		var created, updated string
+		if err := rows.Scan(&pl.CompanyID, &pl.CompanyID, &pl.Kind, &pl.Title, &pl.URL, &pl.FilePath, &pl.ItemsJSON, &created, &updated); err != nil {
+			return nil, fmt.Errorf("scan price_list: %w", err)
+		}
+		priceLists = append(priceLists, pl)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+	return priceLists, nil
+}
+
+func GetPriceItemsFromJSON(itemsJSON string) ([]models.PriceItem, error) {
+	if itemsJSON == "" {
+		return nil, nil
+	}
+
+	var items []models.PriceItem
+	if err := json.Unmarshal([]byte(itemsJSON), &items); err != nil {
+		return nil, fmt.Errorf("unmarshal price items: %w", err)
+	}
+	return items, nil
 }

@@ -1,11 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"suppliers-parser/internal/models"
 	"suppliers-parser/internal/storage"
@@ -13,12 +15,51 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-const url = "https://yopt.org/postavshiki/category/oborudovanie-instrument/region/rossiya"
+const (
+	baseURL     = "https://yopt.org"
+	url         = "https://yopt.org/postavshiki/category/oborudovanie-instrument/region/rossiya"
+	sourceName  = "yopt"
+	maxPages    = 5
+	httpTimeout = 20 * time.Second
+)
 
 var (
-	reINN  = regexp.MustCompile(`(\d{10,12})`)
-	reOGRN = regexp.MustCompile(`(\d{13,15})`)
+	reINN     = regexp.MustCompile(`(\d{10,12})`)
+	reOGRN    = regexp.MustCompile(`(\d{13,15})`)
+	rePriceID = regexp.MustCompile(`price-\d+`) // for extracting price item IDs
 )
+
+var httpClient = &http.Client{
+	Timeout: httpTimeout,
+	Transport: &http.Transport{
+		MaxIdleConns:        50,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
+	},
+}
+
+func fetch(rawURL string) (*goquery.Document, error) {
+	req, err := http.NewRequest("GET", rawURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("new request: %w", err)
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %d, for %s", resp.StatusCode, rawURL)
+	}
+
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("parse html: %w", err)
+	}
+	return doc, nil
+}
 
 func parseCard(url string) models.Company {
 	c := models.Company{URL: url}
@@ -89,7 +130,72 @@ func parseCard(url string) models.Company {
 		}
 	})
 
+	pl, err := parsePriceList(doc)
+	print(pl)
+
 	return c
+}
+
+func parsePriceList(doc *goquery.Document) (*models.PriceList, error) {
+	// Try to find inline price table first
+	var priceItems []models.PriceItem
+	var priceTitle string
+
+	// Look for price tables with class indicating it's a price list
+	doc.Find("div.tovarypostavshika0-each").Each(func(_ int, s *goquery.Selection) {
+		name := strings.TrimSpace(s.Find("div.title-stroka .title a").Text())
+		if name == "" {
+			return
+		}
+		href, _ := s.Find("div.title-stroka .title a").Attr("href")
+		desc := strings.TrimSpace(s.Find("div.text-obj").Text())
+		price := strings.TrimSpace(s.Find("span.costs").Text())
+		price = strings.TrimSpace(strings.TrimPrefix(price, "Цена"))
+
+		items = append(items, models.PriceItem{
+			Name:  name,
+			URL:   href,
+			Price: price,
+			Desc:  desc,
+		})
+	})
+
+	var fileURLs []string
+	doc.Find("div.prikrfiles a").Each(func(_ int, a *goquery.Selection) {
+		href, ok := a.Attr("href")
+		if !ok || href == "" {
+			return
+		}
+		// title := strings.TrimSpace(a.Text())
+
+		fileURLs = append(fileURLs, href)
+	})
+
+	// Prepare price list data
+	pl := &models.PriceList{}
+
+	if len(priceItems) > 0 {
+		// Create inline price list
+		itemsJSON, err := json.Marshal(priceItems)
+		if err != nil {
+			return nil, fmt.Errorf("marshal price items: %w", err)
+		}
+		pl.Kind = "inline"
+		pl.Title = priceTitle
+		pl.ItemsJSON = string(itemsJSON)
+		return pl, nil
+	}
+
+	if len(fileURLs) > 0 {
+		// Create file-based price list (first file)
+		pl.Kind = "file"
+		pl.Title = "Прайс-лист (вложение)"
+		pl.URL = fileURLs[0]
+		// FilePath would be set during download processing
+		return pl, nil
+	}
+
+	return nil, nil // No price list found
 }
 
 func main() {
@@ -125,8 +231,22 @@ func main() {
 			fmt.Printf("%d, %s -> %s\n", i+1, name, href)
 			company := parseCard(href)
 			// fmt.Println(company)
-			if _, err := storage.Save(db, company); err != nil {
-				log.Printf("Ошибка сохранения: %v", err)
+			companyID, err := storage.Save(db, company)
+			if err != nil {
+				log.Printf("Ошибка сохранения компании: %v", err)
+				// continue
+			}
+
+			// Parse price list from company page
+			priceList, err := parsePriceList(company)
+			if err != nil {
+				log.Printf("Ошибка парсинга прайс-листа: %v", err)
+			} else if priceList != nil {
+				priceList.CompanyID = companyID
+				_, err = storage.SavePriceList(db, *priceList)
+				if err != nil {
+					log.Printf("Ошибка сохранения прайс-листа: %v", err)
+				}
 			}
 		})
 	}
