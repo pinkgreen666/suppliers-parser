@@ -2,6 +2,7 @@ package storage
 
 import (
 	"database/sql"
+
 	"suppliers-parser/internal/models"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -49,6 +50,13 @@ func Open(path string) (*sql.DB, error) {
 	return db, nil
 }
 
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
 func Save(db *sql.DB, c models.Company) error {
 	_, err := db.Exec(`
         INSERT INTO company
@@ -68,8 +76,20 @@ func Save(db *sql.DB, c models.Company) error {
             vk            = excluded.vk,
             youtube       = excluded.youtube,
             updated       = datetime('now', 'localtime')
-    `, c.Source, c.URL, c.Name, c.OfficialName, c.INN, c.OGRN,
-		c.Address, c.Phone, c.Email, c.Site, c.Telegram, c.VK, c.Youtube)
+    `,
+		c.Source, c.URL,
+		nullIfEmpty(c.Name),
+		nullIfEmpty(c.OfficialName),
+		nullIfEmpty(c.INN),
+		nullIfEmpty(c.OGRN),
+		nullIfEmpty(c.Address),
+		nullIfEmpty(c.Phone),
+		nullIfEmpty(c.Email),
+		nullIfEmpty(c.Site),
+		nullIfEmpty(c.Telegram),
+		nullIfEmpty(c.VK),
+		nullIfEmpty(c.Youtube),
+	)
 	return err
 }
 
