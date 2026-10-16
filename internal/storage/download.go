@@ -13,7 +13,7 @@ import (
 const pricesDir = "prices"
 
 func DownloadPriceFile(client *http.Client, rawURL, prefix string) (string, error) {
-	if err := os.Mkdir(pricesDir, 0o755); err != nil {
+	if err := os.MkdirAll(pricesDir, 0o755); err != nil {
 		return "", fmt.Errorf("mkdir %s: %w", pricesDir, err)
 	}
 
@@ -68,6 +68,6 @@ func DownloadPriceFile(client *http.Client, rawURL, prefix string) (string, erro
 }
 
 func sanitizeFileName(name string) string {
-	repl := strings.NewReplacer(oldnew ...string)
+	repl := strings.NewReplacer("/", "_", "\\", "_", ":", "_", "*", "_", "?", "_", "\"", "_", "<", "_", ">", "_", "|", "_", " ", "_")
 	return repl.Replace(name)
 }
