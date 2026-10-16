@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -19,7 +20,7 @@ const (
 	baseURL     = "https://yopt.org"
 	url         = "https://yopt.org/postavshiki/category/oborudovanie-instrument/region/rossiya"
 	sourceName  = "yopt"
-	maxPages    = 5
+	maxPages    = 10
 	httpTimeout = 20 * time.Second
 )
 
@@ -210,6 +211,9 @@ func parseInlineItems(doc *goquery.Document) []models.PriceItem {
 }
 
 func main() {
+	force := flag.Bool("force", false, "перепарсить все компании")
+	flag.Parse()
+
 	db, err := storage.Open("data.db")
 	if err != nil {
 		log.Fatalf("открытие БД: %v", err)
@@ -251,7 +255,7 @@ func main() {
 				log.Printf("ошибка Exists %s: %v", crd.href, err)
 				continue
 			}
-			if exists {
+			if exists && !*force {
 				skipped++
 				continue
 			}
@@ -274,6 +278,18 @@ func main() {
 
 			for i := range prices {
 				prices[i].CompanyID = companyID
+
+				if prices[i].Kind == "file" && prices[i].URL != "" {
+					prefix := fmt.Sprintf("%s_%d_", sourceName, companyID)
+
+					path, err := storage.DownloadPriceFile(httpClient, prices[i].URL, prefix)
+					if err != nil {
+						log.Printf("ошибка скачивания %s, %v", prices[i].URL, err)
+					} else {
+						prices[i].FilePath = path
+					}
+				}
+
 				fmt.Printf("%+v\n", prices[i])
 				if err := storage.SavePriceList(db, prices[i]); err != nil {
 					log.Printf("ошибка прайса %s: %v", crd.name, err)
