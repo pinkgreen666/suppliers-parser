@@ -14,4 +14,5 @@ type Company struct {
 	Telegram     string
 	VK           string
 	Youtube      string
+	Category     string
 }

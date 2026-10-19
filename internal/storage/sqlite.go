@@ -37,8 +37,8 @@ func Save(db *sql.DB, c models.Company) (int64, error) {
 	_, err := db.Exec(`
         INSERT INTO company
             (source, url, name, official_name, inn, ogrn,
-             address, phone, email, site, telegram, vk, youtube)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             address, phone, email, site, telegram, vk, youtube, category)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(source, url) DO UPDATE SET
             name          = excluded.name,
             official_name = excluded.official_name,
@@ -51,6 +51,7 @@ func Save(db *sql.DB, c models.Company) (int64, error) {
             telegram      = excluded.telegram,
             vk            = excluded.vk,
             youtube       = excluded.youtube,
+            category      = excluded.category
             updated       = datetime('now', 'localtime')
     `,
 		c.Source, c.URL,
@@ -65,6 +66,7 @@ func Save(db *sql.DB, c models.Company) (int64, error) {
 		nullIfEmpty(c.Telegram),
 		nullIfEmpty(c.VK),
 		nullIfEmpty(c.Youtube),
+		nullIfEmpty(c.Category),
 	)
 
 	var id int64

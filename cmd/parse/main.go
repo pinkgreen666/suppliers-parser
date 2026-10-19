@@ -62,6 +62,26 @@ func fetch(rawURL string) (*goquery.Document, error) {
 	return doc, nil
 }
 
+func parseCategory(doc *goquery.Document) string {
+	var cats []string
+
+	doc.Find(`div[itemtype='https://schema.org/BreadcrumbList'] span[itemprop='itemListElement']`).Each(func(i int, s *goquery.Selection) {
+		href, _ := s.Find("a[itemprop='item']").Attr("href")
+		name := strings.TrimSpace(s.Find("span[itemprop='name']").Text())
+		if name == "" {
+			return
+		}
+
+		if !strings.Contains(href, "/postavshiki/category/") {
+			return
+		}
+
+		cats = append(cats, name)
+	})
+
+	return strings.Join(cats, " / ")
+}
+
 func parseCard(companyURL string) (models.Company, []models.PriceList, error) {
 	c := models.Company{
 		Source: sourceName,
@@ -72,6 +92,9 @@ func parseCard(companyURL string) (models.Company, []models.PriceList, error) {
 	if err != nil {
 		return c, nil, err
 	}
+
+	c.Category = parseCategory(doc)
+	fmt.Println(c.Category)
 
 	doc.Find("div.listInfo-supplier").Each(func(i int, s *goquery.Selection) {
 		label := strings.TrimSpace(s.Find("span").First().Text())
