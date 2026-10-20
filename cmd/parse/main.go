@@ -21,7 +21,6 @@ const (
 	baseURL     = "https://yopt.org"
 	startURL    = "https://yopt.org/postavshiki/category/oborudovanie-instrument/region/rossiya"
 	sourceName  = "yopt"
-	maxPages    = 10
 	httpTimeout = 20 * time.Second
 )
 
@@ -95,7 +94,6 @@ func parseCard(companyURL string) (models.Company, []models.PriceList, error) {
 	}
 
 	c.Category = parseCategory(doc)
-	fmt.Println(c.Category)
 
 	doc.Find("div.listInfo-supplier").Each(func(i int, s *goquery.Selection) {
 		label := strings.TrimSpace(s.Find("span").First().Text())
@@ -248,6 +246,7 @@ func absURL(href string) string {
 
 func main() {
 	force := flag.Bool("force", false, "перепарсить все компании")
+	maxPages := flag.Int("max-pages", 0, "максимальное количество страниц (0 = без лимита)")
 	flag.Parse()
 
 	db, err := storage.Open("data.db")
@@ -261,12 +260,19 @@ func main() {
 	skipped := 0
 	failed := 0
 
-	for page := 0; page < maxPages; page++ {
+	for page := 0; ; page++ {
+		if *maxPages > 0 && page >= *maxPages {
+			break
+		}
+
 		pageURL := fmt.Sprintf("%s?page=%d", startURL, page)
 
 		doc, err := fetch(pageURL)
 		if err != nil {
 			log.Printf("ошибка листинга: %v", err)
+			if strings.Contains(err.Error(), "status 404") {
+				break
+			}
 			continue
 		}
 
@@ -284,6 +290,11 @@ func main() {
 			}
 			cards = append(cards, card{name: name, href: href})
 		})
+		fmt.Println(len(cards))
+
+		if len(cards) == 0 {
+			break
+		}
 
 		for _, crd := range cards {
 			exists, err := storage.Exists(db, sourceName, crd.href)
