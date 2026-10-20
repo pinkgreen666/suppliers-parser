@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -18,7 +19,7 @@ import (
 
 const (
 	baseURL     = "https://yopt.org"
-	url         = "https://yopt.org/postavshiki/category/oborudovanie-instrument/region/rossiya"
+	startURL    = "https://yopt.org/postavshiki/category/oborudovanie-instrument/region/rossiya"
 	sourceName  = "yopt"
 	maxPages    = 10
 	httpTimeout = 20 * time.Second
@@ -172,7 +173,7 @@ func parsePriceList(doc *goquery.Document) []models.PriceList {
 		result = append(result, models.PriceList{
 			Kind:  "file",
 			Title: title,
-			URL:   href,
+			URL:   absURL(href),
 		})
 	})
 
@@ -185,7 +186,7 @@ func parsePriceList(doc *goquery.Document) []models.PriceList {
 			result = append(result, models.PriceList{
 				Kind:      "inline",
 				Title:     "Товары на сайте",
-				URL:       href,
+				URL:       absURL(href),
 				ItemsJSON: string(data),
 			})
 		}
@@ -227,13 +228,22 @@ func parseInlineItems(doc *goquery.Document) []models.PriceItem {
 
 		items = append(items, models.PriceItem{
 			Name:  name,
-			URL:   href,
+			URL:   absURL(href),
 			Price: price,
 			Desc:  desc,
 		})
 	})
 
 	return items
+}
+
+func absURL(href string) string {
+	if strings.HasPrefix(href, "http") {
+		return href
+	}
+	b, _ := url.Parse(baseURL)
+	r, _ := url.Parse(href)
+	return b.ResolveReference(r).String()
 }
 
 func main() {
@@ -252,7 +262,7 @@ func main() {
 	failed := 0
 
 	for page := 0; page < maxPages; page++ {
-		pageURL := fmt.Sprintf("%s?page=%d", url, page)
+		pageURL := fmt.Sprintf("%s?page=%d", startURL, page)
 
 		doc, err := fetch(pageURL)
 		if err != nil {
