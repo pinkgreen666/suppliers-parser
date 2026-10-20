@@ -178,11 +178,14 @@ func parsePriceList(doc *goquery.Document) []models.PriceList {
 
 	items := parseInlineItems(doc)
 	if len(items) > 0 {
+		href, _ := doc.Find("div.vsetovarypost a").Attr("href")
+		href = strings.TrimSpace(href)
 		data, err := json.Marshal(items)
 		if err == nil {
 			result = append(result, models.PriceList{
 				Kind:      "inline",
 				Title:     "Товары на сайте",
+				URL:       href,
 				ItemsJSON: string(data),
 			})
 		}

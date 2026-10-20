@@ -51,7 +51,7 @@ func Save(db *sql.DB, c models.Company) (int64, error) {
             telegram      = excluded.telegram,
             vk            = excluded.vk,
             youtube       = excluded.youtube,
-            category      = excluded.category
+            category      = excluded.category,
             updated       = datetime('now', 'localtime')
     `,
 		c.Source, c.URL,
@@ -68,6 +68,9 @@ func Save(db *sql.DB, c models.Company) (int64, error) {
 		nullIfEmpty(c.Youtube),
 		nullIfEmpty(c.Category),
 	)
+	if err != nil {
+		fmt.Println(err)
+	}
 
 	var id int64
 	err = db.QueryRow(
@@ -92,7 +95,7 @@ func SavePriceList(db *sql.DB, pl models.PriceList) error {
         INSERT INTO price_list
             (company_id, kind, url, file_path, items_json)
         VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT DO UPDATE SET
+        ON CONFLICT (company_id, url) DO UPDATE SET
             company_id = excluded.company_id,
             kind       = excluded.kind,
             url        = excluded.url,
