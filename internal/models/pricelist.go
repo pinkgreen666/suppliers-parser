@@ -10,8 +10,9 @@ type PriceList struct {
 }
 
 type PriceItem struct {
-	Name  string
-	URL   string
-	Price string
-	Desc  string
+	Name     string
+	URL      string
+	Price    string
+	Desc     string
+	Category string
 }

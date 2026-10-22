@@ -175,18 +175,13 @@ func parsePriceList(doc *goquery.Document) []models.PriceList {
 		})
 	})
 
-	items := parseInlineItems(doc)
-	if len(items) > 0 {
-		href, _ := doc.Find("div.vsetovarypost a").Attr("href")
-		href = strings.TrimSpace(href)
-		data, err := json.Marshal(items)
-		if err == nil {
-			result = append(result, models.PriceList{
-				Kind:      "inline",
-				Title:     "Товары на сайте",
-				URL:       absURL(href),
-				ItemsJSON: string(data),
-			})
+	if href, ok := doc.Find("div.vsetovarypost a").Attr("href"); ok && href != "" {
+		listingURL := absURL(href)
+		inline, err := parseInlineItems(listingURL)
+		if err != nil {
+			log.Printf("inline-прайс %s: %v", listingURL, err)
+		} else if inline != nil {
+			result = append(result, *inline)
 		}
 	}
 
@@ -210,29 +205,90 @@ func isPriceListFile(href, title string) bool {
 	return false
 }
 
-func parseInlineItems(doc *goquery.Document) []models.PriceItem {
-	var items []models.PriceItem
+func parseProductLinks(listingURL string) ([]string, error) {
+	doc, err := fetch(listingURL)
+	if err != nil {
+		return nil, err
+	}
 
-	doc.Find("div.tovarypostavshika0-each").Each(func(i int, s *goquery.Selection) {
-		name := strings.TrimSpace(s.Find("div.title-stroka .title a").Text())
-
-		if name == "" {
+	var links []string
+	doc.Find("div.view-content div.views-row").Each(func(i int, s *goquery.Selection) {
+		href, ok := s.Find("div.title-stroka .title a").Attr("href")
+		if !ok || href == "" {
 			return
 		}
-		href, _ := s.Find("div.title-stroka .title a").Attr("href")
-		desc := strings.TrimSpace(s.Find("div.text-obj").Text())
-		price := strings.TrimSpace(s.Find("span.costs").Text())
-		price = strings.TrimSpace(strings.TrimPrefix(price, "Цена:"))
+		links = append(links, absURL(href))
+	})
+	return links, nil
+}
 
-		items = append(items, models.PriceItem{
-			Name:  name,
-			URL:   absURL(href),
-			Price: price,
-			Desc:  desc,
-		})
+func parseProductCard(productURL string) (models.PriceItem, error) {
+	item := models.PriceItem{URL: productURL}
+
+	doc, err := fetch(productURL)
+	if err != nil {
+		return item, err
+	}
+
+	item.Name = strings.TrimSpace(doc.Find("h1.title").First().Text())
+	if item.Name == "" {
+		item.Name = strings.TrimSpace(doc.Find("h1").First().Text())
+	}
+
+	doc.Find("div").EachWithBreak(func(i int, s *goquery.Selection) bool {
+		text := strings.TrimSpace(s.Contents().First().Text())
+		if strings.HasPrefix(text, "Оптовая цена") {
+			item.Price = strings.TrimSpace(s.Find("strong").First().Text())
+			return false
+		}
+		return true
 	})
 
-	return items
+	item.Desc = strings.TrimSpace(doc.Find("div.views-field-body .field-content").Text())
+
+	item.Category = parseCategory(doc)
+	return item, nil
+}
+
+func parseInlineItems(listingURL string) (*models.PriceList, error) {
+	productLinks, err := parseProductLinks(listingURL)
+	fmt.Println(productLinks)
+	if err != nil {
+		return nil, fmt.Errorf("листинг товаров: %w", err)
+	}
+	if len(productLinks) == 0 {
+		return nil, nil
+	}
+
+	var items []models.PriceItem
+	for _, productURL := range productLinks {
+		item, err := parseProductCard(productURL)
+		if err != nil {
+			log.Printf("товар %s: %v", productURL, err)
+			continue
+		}
+		if item.Name == "" {
+			continue
+		}
+		items = append(items, item)
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	if len(items) == 0 {
+		return nil, nil
+	}
+
+	data, err := json.Marshal(items)
+	if err != nil {
+		return nil, err
+	}
+
+	return &models.PriceList{
+		Kind:      "inline",
+		Title:     "Товары на сайте",
+		URL:       listingURL,
+		ItemsJSON: string(data),
+	}, nil
 }
 
 func absURL(href string) string {
