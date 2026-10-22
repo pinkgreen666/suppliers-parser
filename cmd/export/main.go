@@ -138,7 +138,7 @@ func writePriceLists(f *excelize.File, db *sql.DB, source string) error {
 	}
 
 	headers := []string{
-		"ID", "Компания", "ИНН", "Тип", "Название",
+		"ID", "Компания", "ИНН", "Тип",
 		"URL", "Локальный файл", "Активен", "Создан", "Обновлён",
 	}
 	writeHeader(f, sheet, headers)
