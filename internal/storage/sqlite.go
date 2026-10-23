@@ -2,6 +2,7 @@ package storage
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 
 	"suppliers-parser/internal/models"
@@ -9,7 +10,11 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-func Open(path string) (*sql.DB, error) {
+type DB struct {
+	sql *sql.DB
+}
+
+func Open(path string) (*DB, error) {
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		return nil, fmt.Errorf("sql.Open: %w", err)
@@ -23,7 +28,18 @@ func Open(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("ping: %w", err)
 	}
 
-	return db, nil
+	return &DB{sql: db}, nil
+}
+
+func (d *DB) Close() error { return d.sql.Close() }
+
+func (d *DB) Exists(source, url string) (bool, error) {
+	var exists bool
+	err := d.sql.QueryRow(
+		"SELECT EXISTS(SELECT 1 FROM company WHERE source = ? AND url = ?)",
+		source, url,
+	).Scan(&exists)
+	return exists, err
 }
 
 func nullIfEmpty(s string) any {
@@ -33,12 +49,12 @@ func nullIfEmpty(s string) any {
 	return s
 }
 
-func Save(db *sql.DB, c models.Company) (int64, error) {
-	_, err := db.Exec(`
+func (d *DB) SaveCompany(c models.Company) (int64, error) {
+	_, err := d.sql.Exec(`
         INSERT INTO company
             (source, url, name, official_name, inn, ogrn,
-             address, phone, email, site, telegram, vk, youtube, category)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             address, phone, email, site, telegram, vk, category)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(source, url) DO UPDATE SET
             name          = excluded.name,
             official_name = excluded.official_name,
@@ -50,7 +66,6 @@ func Save(db *sql.DB, c models.Company) (int64, error) {
             site          = excluded.site,
             telegram      = excluded.telegram,
             vk            = excluded.vk,
-            youtube       = excluded.youtube,
             category      = excluded.category,
             updated       = datetime('now', 'localtime')
     `,
@@ -65,7 +80,6 @@ func Save(db *sql.DB, c models.Company) (int64, error) {
 		nullIfEmpty(c.Site),
 		nullIfEmpty(c.Telegram),
 		nullIfEmpty(c.VK),
-		nullIfEmpty(c.Youtube),
 		nullIfEmpty(c.Category),
 	)
 	if err != nil {
@@ -73,7 +87,7 @@ func Save(db *sql.DB, c models.Company) (int64, error) {
 	}
 
 	var id int64
-	err = db.QueryRow(
+	err = d.sql.QueryRow(
 		"SELECT id FROM company WHERE source = ? AND url = ?",
 		c.Source, c.URL,
 	).Scan(&id)
@@ -81,17 +95,17 @@ func Save(db *sql.DB, c models.Company) (int64, error) {
 	return id, err
 }
 
-func Exists(db *sql.DB, source, url string) (bool, error) {
-	var exists bool
-	err := db.QueryRow(
-		"SELECT EXISTS(SELECT 1 FROM company WHERE source = ? AND url = ?)",
-		source, url,
-	).Scan(&exists)
-	return exists, err
-}
+func (d *DB) SavePriceList(pl models.PriceList) error {
+	var itemsJSON any
+	if len(pl.Items) > 0 {
+		data, err := json.Marshal(pl.Items)
+		if err != nil {
+			return fmt.Errorf("marshal items: %w", err)
+		}
+		itemsJSON = string(data)
+	}
 
-func SavePriceList(db *sql.DB, pl models.PriceList) error {
-	_, err := db.Exec(`
+	_, err := d.sql.Exec(`
         INSERT INTO price_list
             (company_id, kind, url, file_path, items_json)
         VALUES (?, ?, ?, ?, ?)
@@ -106,7 +120,7 @@ func SavePriceList(db *sql.DB, pl models.PriceList) error {
 		nullIfEmpty(pl.Kind),
 		nullIfEmpty(pl.URL),
 		nullIfEmpty(pl.FilePath),
-		nullIfEmpty(pl.ItemsJSON),
+		itemsJSON,
 	)
 
 	// var id int64
