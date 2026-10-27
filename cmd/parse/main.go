@@ -11,6 +11,7 @@ import (
 	"suppliers-parser/internal/runner"
 	"suppliers-parser/internal/storage"
 
+	_ "suppliers-parser/internal/sources/productcenter"
 	_ "suppliers-parser/internal/sources/yopt"
 )
 
