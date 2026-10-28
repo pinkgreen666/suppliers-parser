@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"suppliers-parser/internal/models"
 
@@ -83,7 +84,7 @@ func (d *DB) SaveCompany(c models.Company) (int64, error) {
 		nullIfEmpty(c.Category),
 	)
 	if err != nil {
-		fmt.Println(err)
+		return 0, err
 	}
 
 	var id int64
@@ -91,7 +92,6 @@ func (d *DB) SaveCompany(c models.Company) (int64, error) {
 		"SELECT id FROM company WHERE source = ? AND url = ?",
 		c.Source, c.URL,
 	).Scan(&id)
-	fmt.Println(id)
 	return id, err
 }
 
@@ -113,7 +113,7 @@ func (d *DB) SavePriceList(pl models.PriceList) error {
             company_id = excluded.company_id,
             kind       = excluded.kind,
             url        = excluded.url,
-            file_path  = excluded.file_path,
+            file_path  = COALESCE(excluded.file_path, price_list.file_path),
             items_json = excluded.items_json
     `,
 		pl.CompanyID,
@@ -133,4 +133,30 @@ func (d *DB) SavePriceList(pl models.PriceList) error {
 	// }
 
 	return err
+}
+
+// PendingPriceFiles includes missing and empty local files, not only NULL paths.
+func (d *DB) PendingPriceFiles(source string) ([]models.PriceList, error) {
+	rows, err := d.sql.Query(`SELECT p.company_id, p.url, COALESCE(p.file_path, '')
+ FROM price_list p JOIN company c ON c.id = p.company_id
+ WHERE c.source = ? AND p.kind = 'file' AND p.is_active = 1 AND c.is_active = 1
+ AND p.url IS NOT NULL AND p.url != '' ORDER BY p.id`, source)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []models.PriceList
+	for rows.Next() {
+		p := models.PriceList{Kind: "file"}
+		if err := rows.Scan(&p.CompanyID, &p.URL, &p.FilePath); err != nil {
+			return nil, err
+		}
+		info, err := os.Stat(p.FilePath)
+		if p.FilePath == "" || os.IsNotExist(err) || (err == nil && (!info.Mode().IsRegular() || info.Size() == 0)) {
+			result = append(result, p)
+		} else if err != nil {
+			return nil, err
+		}
+	}
+	return result, rows.Err()
 }

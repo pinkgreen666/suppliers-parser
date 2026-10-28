@@ -2,6 +2,7 @@ package productcenter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -35,11 +36,14 @@ func init() {
 	core.Register(sourceName, func() core.Source {
 		return &ProductCenter{
 			client: &http.Client{
-				Timeout: 20 * time.Second,
-				Transport: &http.Transport{
-					MaxIdleConns:        50,
-					MaxIdleConnsPerHost: 10,
-					IdleConnTimeout:     90 * time.Second,
+				Timeout: 60 * time.Second,
+				Transport: &pacedTransport{
+					delay: 10 * time.Second,
+					base: &http.Transport{
+						MaxIdleConns:        50,
+						MaxIdleConnsPerHost: 10,
+						IdleConnTimeout:     90 * time.Second,
+					},
 				},
 			},
 		}
@@ -64,10 +68,10 @@ func (p *ProductCenter) Parse(ctx context.Context) (<-chan models.Company, error
 			}
 
 			pageURL := fmt.Sprintf("%s?page=%d", startURL, page)
-			doc, err := p.fetch(pageURL)
+			doc, err := p.fetch(ctx, pageURL)
 			if err != nil {
 				log.Printf("productcenter: listing %d: %v", page, err)
-				if strings.Contains(err.Error(), "status 404") {
+				if ctx.Err() != nil || errors.Is(err, errBlocked) || strings.Contains(err.Error(), "status 404") {
 					return
 				}
 				continue
@@ -78,16 +82,21 @@ func (p *ProductCenter) Parse(ctx context.Context) (<-chan models.Company, error
 				return
 			}
 
-			for _, card := range cards {
+			log.Printf("[%s] страница %d: компаний=%d", sourceName, page, len(cards))
+			for i, card := range cards {
+				log.Printf("[%s] компания %d/%d: %s (%s)", sourceName, i+1, len(cards), card.Name, card.URL)
 				select {
 				case <-ctx.Done():
 					return
 				default:
 				}
 
-				company, err := p.parseCompany(card.URL, card.Name)
+				company, err := p.parseCompany(ctx, card.URL, card.Name)
 				if err != nil {
 					log.Printf("productcenter: company %s: %v", card.URL, err)
+					if ctx.Err() != nil || errors.Is(err, errBlocked) {
+						return
+					}
 					continue
 				}
 
@@ -97,7 +106,6 @@ func (p *ProductCenter) Parse(ctx context.Context) (<-chan models.Company, error
 				case out <- company:
 				}
 
-				time.Sleep(300 * time.Millisecond)
 			}
 		}
 	}()
@@ -123,14 +131,14 @@ func (p *ProductCenter) parseListing(doc *goquery.Document) []card {
 	return cards
 }
 
-func (p *ProductCenter) parseCompany(companyURL, name string) (models.Company, error) {
+func (p *ProductCenter) parseCompany(ctx context.Context, companyURL, name string) (models.Company, error) {
 	c := models.Company{
 		Source: sourceName,
 		URL:    companyURL,
 		Name:   name,
 	}
 
-	doc, err := p.fetch(companyURL)
+	doc, err := p.fetch(ctx, companyURL)
 	if err != nil {
 		return c, err
 	}
@@ -191,11 +199,11 @@ func (p *ProductCenter) parseCompany(companyURL, name string) (models.Company, e
 		}
 	})
 
-	c.PriceLists = p.parsePriceLists(doc, companyURL)
+	c.PriceLists = p.parsePriceLists(ctx, doc, companyURL)
 	return c, nil
 }
 
-func (p *ProductCenter) parsePriceLists(doc *goquery.Document, companyURL string) []models.PriceList {
+func (p *ProductCenter) parsePriceLists(ctx context.Context, doc *goquery.Document, companyURL string) []models.PriceList {
 	var result []models.PriceList
 
 	doc.Find("a[href^='/uploads/']").Each(func(_ int, a *goquery.Selection) {
@@ -218,15 +226,15 @@ func (p *ProductCenter) parsePriceLists(doc *goquery.Document, companyURL string
 	})
 
 	if href, ok := doc.Find("a[href^='/products/producer-']").First().Attr("href"); ok && href != "" {
-		if inline := p.parseInlinePriceList(p.absURL(href)); inline != nil {
+		if inline := p.parseInlinePriceList(ctx, p.absURL(href)); inline != nil {
 			result = append(result, *inline)
 		}
 	}
 	return result
 }
 
-func (p *ProductCenter) parseInlinePriceList(listingURL string) *models.PriceList {
-	productLinks, err := p.parseProductLinks(listingURL)
+func (p *ProductCenter) parseInlinePriceList(ctx context.Context, listingURL string) *models.PriceList {
+	productLinks, err := p.parseProductLinks(ctx, listingURL)
 	if err != nil {
 		log.Printf("productcenter: inline listing %s: %v", listingURL, err)
 		return nil
@@ -236,17 +244,20 @@ func (p *ProductCenter) parseInlinePriceList(listingURL string) *models.PriceLis
 	}
 
 	var items []models.PriceItem
-	for _, productURL := range productLinks {
-		item, err := p.parseProductCard(productURL)
+	for i, productURL := range productLinks {
+		log.Printf("[%s] товар %d/%d: %s", sourceName, i+1, len(productLinks), productURL)
+		item, err := p.parseProductCard(ctx, productURL)
 		if err != nil {
 			log.Printf("productcenter: product %s: %v", productURL, err)
+			if ctx.Err() != nil || errors.Is(err, errBlocked) {
+				return nil
+			}
 			continue
 		}
 		if item.Name == "" {
 			continue
 		}
 		items = append(items, item)
-		time.Sleep(200 * time.Millisecond)
 	}
 	if len(items) == 0 {
 		return nil
@@ -259,8 +270,8 @@ func (p *ProductCenter) parseInlinePriceList(listingURL string) *models.PriceLis
 	}
 }
 
-func (p *ProductCenter) parseProductLinks(listingURL string) ([]string, error) {
-	doc, err := p.fetch(listingURL)
+func (p *ProductCenter) parseProductLinks(ctx context.Context, listingURL string) ([]string, error) {
+	doc, err := p.fetch(ctx, listingURL)
 	if err != nil {
 		return nil, err
 	}
@@ -278,9 +289,9 @@ func (p *ProductCenter) parseProductLinks(listingURL string) ([]string, error) {
 	return links, nil
 }
 
-func (p *ProductCenter) parseProductCard(productURL string) (models.PriceItem, error) {
+func (p *ProductCenter) parseProductCard(ctx context.Context, productURL string) (models.PriceItem, error) {
 	item := models.PriceItem{URL: productURL}
-	doc, err := p.fetch(productURL)
+	doc, err := p.fetch(ctx, productURL)
 	if err != nil {
 		return item, err
 	}
@@ -316,8 +327,14 @@ func (p *ProductCenter) parseProductCard(productURL string) (models.PriceItem, e
 	return item, nil
 }
 
-func (p *ProductCenter) fetch(rawURL string) (*goquery.Document, error) {
-	req, err := http.NewRequest("GET", rawURL, nil)
+func (p *ProductCenter) fetch(ctx context.Context, rawURL string) (doc *goquery.Document, err error) {
+	started := time.Now()
+	log.Printf("[%s] GET %s", sourceName, rawURL)
+	defer func() {
+		log.Printf("[%s] GET завершён за %s: %s, ошибка=%v", sourceName, time.Since(started).Round(time.Millisecond), rawURL, err)
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -373,4 +390,3 @@ func isPriceListFile(href, title string) bool {
 	}
 	return false
 }
-
