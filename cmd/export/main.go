@@ -64,14 +64,14 @@ func writeCompanies(f *excelize.File, db *sql.DB, source string) error {
 	headers := []string{
 		"ID", "Источник", "Название", "Официальное название",
 		"ИНН", "ОГРН", "Категория", "Адрес", "Телефон",
-		"Email", "Сайт", "Телеграм", "ВК", "YouTube",
+		"Email", "Сайт", "Телеграм", "ВК",
 		"Есть прайс", "Ссылка", "Создано", "Обновлено",
 	}
 	writeHeader(f, sheet, headers)
 
 	query := `
 		SELECT c.id, c.source, c.name, c.official_name, c.inn, c.ogrn, c.category,
-		       c.address, c.phone, c.email, c.site, c.telegram, c.vk, c.youtube,
+		       c.address, c.phone, c.email, c.site, c.telegram, c.vk,
 		       c.url, c.created, c.updated,
 		       (SELECT COUNT(*) FROM price_list p WHERE p.company_id = c.id) AS prices_count
 		FROM company c
@@ -96,12 +96,12 @@ func writeCompanies(f *excelize.File, db *sql.DB, source string) error {
 			id                                  int64
 			src, name, official, inn, ogrn, cat sql.NullString
 			address, phone, email, site         sql.NullString
-			telegram, vk, youtube, url          sql.NullString
+			telegram, vk, url                   sql.NullString
 			created, updated                    sql.NullString
 			pricesCount                         int
 		)
 		if err := rows.Scan(&id, &src, &name, &official, &inn, &ogrn, &cat,
-			&address, &phone, &email, &site, &telegram, &vk, &youtube,
+			&address, &phone, &email, &site, &telegram, &vk,
 			&url, &created, &updated, &pricesCount); err != nil {
 			return err
 		}
@@ -114,7 +114,7 @@ func writeCompanies(f *excelize.File, db *sql.DB, source string) error {
 		values := []any{
 			id, src.String, name.String, official.String,
 			inn.String, ogrn.String, cat.String, address.String, phone.String,
-			email.String, site.String, telegram.String, vk.String, youtube.String,
+			email.String, site.String, telegram.String, vk.String,
 			hasPrice, url.String, created.String, updated.String,
 		}
 		writeRow(f, sheet, row, values)
