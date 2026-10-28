@@ -6,13 +6,14 @@ This Go application collects supplier information and price lists into SQLite an
 
 - `cmd/parse/`: parser CLI and source selection.
 - `cmd/export/`: Excel export CLI.
+- `cmd/enrich/` and `internal/leadership/`: DaData leadership lookup and shared cache workflow.
 - `internal/core/`: `Source` interface and source registry.
 - `internal/sources/yopt/` and `internal/sources/productcenter/`: site-specific adapters.
 - `internal/runner/`: parsing orchestration, persistence, and downloads.
 - `internal/models/` and `internal/storage/`: shared records, SQLite access, and file storage.
 - `migrations/`: numbered SQL migrations with paired `.up.sql` and `.down.sql` files.
 
-There are currently no test files or static asset directories. Runtime downloads go into `prices/`.
+Tests live alongside packages in `*_test.go`; classifier fixtures are in `internal/categorize/testdata/`. Runtime downloads go into `prices/`.
 
 ## Build, Test, and Development Commands
 
@@ -21,6 +22,7 @@ Run commands from the repository root. Use the Go version declared in `go.mod` (
 - `go build ./...`: compile all packages and check both CLIs.
 - `go test ./...`: run all package tests.
 - `go vet ./...`: run Go's static checks.
+- `go run ./cmd/enrich --dry-run --limit 5`: validate lookup identifiers without API calls. Real lookups require `DADATA_API_KEY`; never log or commit it.
 - `make migrate-up`: apply migrations to `data.db`; run before parsing or exporting.
 - `go run ./cmd/parse -sources yopt -db data.db`: collect suppliers; use `-sources all` for both adapters or `-force` to reprocess existing records.
 - `go run ./cmd/export -db data.db -out companies.xlsx`: export records; optionally filter with `-source yopt`.
