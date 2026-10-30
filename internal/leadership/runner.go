@@ -130,6 +130,9 @@ func Run(ctx context.Context, store Store, provider Provider, companies []Compan
 		}
 		report.Records = append(report.Records, record)
 		log.Printf("[enrich] [%d/%d] id=%d %s: %s, кеш=%t", index+1, len(companies), c.ID, c.Name, record.Status, record.Cached)
+		if record.Error != "" {
+			log.Printf("[enrich] company_id=%d: %s", c.ID, record.Error)
+		}
 	}
 	return report, nil
 }

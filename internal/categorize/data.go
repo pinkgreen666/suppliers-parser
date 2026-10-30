@@ -18,6 +18,10 @@ type Category struct {
 
 type Product struct {
 	Row            int    `json:"excel_row"`
+	SourceFile     string `json:"source_file,omitempty"`
+	SourceSheet    string `json:"source_sheet,omitempty"`
+	SourcePage     int    `json:"source_page,omitempty"`
+	SourceRow      int    `json:"source_row,omitempty"`
 	Name           string `json:"name"`
 	Description    string `json:"description,omitempty"`
 	SourceCategory string `json:"source_category,omitempty"`
@@ -116,7 +120,7 @@ func (s ExcelSource) Load(ctx context.Context, limit int) ([]Company, error) {
 		return nil, err
 	}
 	defer f.Close()
-	rows, h, err := table(f, "Компании", "ID", "Название", "ИНН")
+	rows, h, err := table(f, "Компании", "Название", "ИНН")
 	if err != nil {
 		return nil, err
 	}

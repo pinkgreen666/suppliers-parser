@@ -57,6 +57,7 @@ func (d *DB) SaveCompany(c models.Company) (int64, error) {
              address, phone, email, site, telegram, vk, category)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(source, url) DO UPDATE SET
+            is_russian = CASE WHEN company.inn IS excluded.inn AND company.ogrn IS excluded.ogrn AND company.address IS excluded.address THEN company.is_russian ELSE NULL END,
             name          = excluded.name,
             official_name = excluded.official_name,
             inn           = excluded.inn,

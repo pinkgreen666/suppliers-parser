@@ -86,7 +86,7 @@ func run() error {
 }
 func main() {
 	if err := run(); err != nil {
-		log.Print(err)
+		log.Printf("[enrich] ошибка: %v", err)
 		os.Exit(1)
 	}
 }

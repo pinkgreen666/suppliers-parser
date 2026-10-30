@@ -5,10 +5,14 @@ DB_URL = sqlite3://./data.db
 # Имя бинарника migrate (если он не в PATH, укажите полный путь)
 MIGRATE = migrate
 
-.PHONY: help migrate-version migrate-up migrate-up-one migrate-down migrate-down-one migrate-create migrate-force
+.PHONY: help build migrate-version migrate-up migrate-up-one migrate-down migrate-down-one migrate-create migrate-force
 
 help: ## Показать доступные команды
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+
+build: ## Собрать parse, categorize, enrich, geography и export в bin/ (нужны CGO и C-компилятор)
+	mkdir -p bin
+	CGO_ENABLED=1 go build -o ./bin/ ./cmd/parse ./cmd/categorize ./cmd/enrich ./cmd/geography ./cmd/export
 
 migrate-version: ## Показать текущую версию миграций
 	$(MIGRATE) -path $(MIGRATIONS_PATH) -database "$(DB_URL)" version

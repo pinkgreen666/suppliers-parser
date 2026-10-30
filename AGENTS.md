@@ -5,11 +5,14 @@
 This Go application collects supplier information and price lists into SQLite and exports Excel workbooks.
 
 - `cmd/parse/`: parser CLI and source selection.
-- `cmd/export/`: Excel export CLI.
+- `cmd/export/`: Excel export CLI, restricted to `is_russian = 1`.
+- `cmd/geography/` and `internal/geography/`: local jurisdiction classification; run before export.
 - `cmd/enrich/` and `internal/leadership/`: DaData leadership lookup and shared cache workflow.
 - `internal/core/`: `Source` interface and source registry.
 - `internal/sources/yopt/` and `internal/sources/productcenter/`: site-specific adapters.
 - `internal/runner/`: parsing orchestration, persistence, and downloads.
+- `internal/enrichment/`: automatic per-company categories and leadership; `internal/categorize/`: local matching rules.
+- `internal/pricefiles/`: XLSX/CSV/PDF extraction with cached results in SQLite.
 - `internal/models/` and `internal/storage/`: shared records, SQLite access, and file storage.
 - `migrations/`: numbered SQL migrations with paired `.up.sql` and `.down.sql` files.
 
@@ -17,7 +20,7 @@ Tests live alongside packages in `*_test.go`; classifier fixtures are in `intern
 
 ## Build, Test, and Development Commands
 
-Run commands from the repository root. Use the Go version declared in `go.mod` (currently `1.27.1`), a C compiler with CGO enabled for `go-sqlite3`, and a `migrate` CLI supporting SQLite.
+Run commands from the repository root. Use the Go version declared in `go.mod` (currently `1.27.1`), a C compiler with CGO enabled for `go-sqlite3`, and a `migrate` CLI supporting SQLite. File extraction also uses `libreoffice` for XLS and `pdftotext` for text PDFs; OCR is excluded.
 
 - `go build ./...`: compile all packages and check both CLIs.
 - `go test ./...`: run all package tests.
@@ -30,7 +33,7 @@ Run commands from the repository root. Use the Go version declared in `go.mod` (
 
 ## Coding Style & Naming Conventions
 
-Format Go changes with `gofmt`; use tabs, lowercase package names, and idiomatic exported names. No custom formatter or linter configuration exists. Keep site-specific selectors inside their adapter. New adapters must implement `core.Source`, register through `core.Register`, and be blank-imported by `cmd/parse/main.go`.
+Log progress and errors as `[component] message` using the standard timestamped Go logger. Format Go changes with `gofmt`; use tabs, lowercase package names, and idiomatic exported names. No custom formatter or linter configuration exists. Keep site-specific selectors inside their adapter. New adapters must implement `core.Source`, register through `core.Register`, and be blank-imported by `cmd/parse/main.go`.
 
 ## Testing Guidelines
 

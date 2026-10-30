@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"suppliers-parser/internal/core"
+	"suppliers-parser/internal/leadership"
 	"suppliers-parser/internal/models"
 	"suppliers-parser/internal/storage"
 )
@@ -162,5 +163,48 @@ func TestForceUpdatesCompaniesAndPricesWithoutRepairPass(t *testing.T) {
 	var parsed []models.PriceItem
 	if err := json.Unmarshal([]byte(items), &parsed); err != nil || !reflect.DeepEqual(parsed, fresh.PriceLists[0].Items) {
 		t.Fatalf("items=%s err=%v", items, err)
+	}
+}
+
+func TestEnrichmentRunsBeforeDownloadAndForExisting(t *testing.T) {
+	db := newTestDB(t)
+	calls := 0
+	fileCalls := 0
+	src := &repairSource{companies: []models.Company{{Source: "yopt", URL: "https://example.test/c", Name: "Company", PriceLists: []models.PriceList{{Kind: "file", URL: "https://example.test/p.pdf"}}}}}
+	src.client = &http.Client{Transport: repairTransport(func(r *http.Request) (*http.Response, error) {
+		if calls != 1 {
+			t.Errorf("download before enrichment: calls=%d", calls)
+		}
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("%PDF-test"))}, nil
+	})}
+	r := New(db).WithDelay(0).WithEnrichment(func(ctx context.Context, c leadership.Company) error {
+		calls++
+		pending, err := db.PendingPriceFiles("yopt")
+		if err != nil {
+			return err
+		}
+		if calls == 1 && len(pending) != 1 {
+			t.Errorf("URLs not saved before enrichment: %v", pending)
+		}
+		return nil
+	})
+	r.WithFileEnrichment(func(ctx context.Context, id int64) error {
+		fileCalls++
+		pending, err := db.PendingPriceFiles("yopt")
+		if err != nil {
+			return err
+		}
+		if len(pending) != 0 {
+			t.Fatal("file hook before successful download")
+		}
+		return nil
+	})
+	r.RunSources(context.Background(), []core.Source{src})
+	r.RunSources(context.Background(), []core.Source{src})
+	if fileCalls != 1 {
+		t.Fatalf("file calls=%d", fileCalls)
+	}
+	if calls != 2 {
+		t.Fatalf("calls=%d", calls)
 	}
 }

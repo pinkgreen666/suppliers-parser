@@ -8,11 +8,14 @@ import (
 	"time"
 
 	"suppliers-parser/internal/core"
+	"suppliers-parser/internal/leadership"
 	"suppliers-parser/internal/storage"
 )
 
 type Runner struct {
 	db            *storage.DB
+	afterCompany  func(context.Context, leadership.Company) error
+	afterFiles    func(context.Context, int64) error
 	force         bool
 	downloadsOnly bool
 	delay         time.Duration
@@ -20,6 +23,16 @@ type Runner struct {
 
 func New(db *storage.DB) *Runner {
 	return &Runner{db: db, delay: 300 * time.Millisecond}
+}
+
+func (r *Runner) WithEnrichment(f func(context.Context, leadership.Company) error) *Runner {
+	r.afterCompany = f
+	return r
+}
+
+func (r *Runner) WithFileEnrichment(f func(context.Context, int64) error) *Runner {
+	r.afterFiles = f
+	return r
 }
 
 func (r *Runner) WithDownloadsOnly(v bool) *Runner { r.downloadsOnly = v; return r }
@@ -46,7 +59,7 @@ func (r *Runner) RunSources(ctx context.Context, sources []core.Source) map[stri
 			results[s.Name()] = stats
 			mu.Unlock()
 
-			log.Printf("[%s] готово %+v", s.Name(), stats)
+			log.Printf("[%s] готово: компаний=%d, прайсов=%d, пропущено=%d, ошибок=%d", s.Name(), stats.SavedCompanies, stats.SavedPrices, stats.Skipped, stats.Failed)
 
 		}(src)
 	}
@@ -83,6 +96,12 @@ func (r *Runner) runSource(ctx context.Context, src core.Source) (core.Stats, er
 				continue
 			}
 			stats.SavedPrices++
+			if r.afterFiles != nil {
+				if err := r.afterFiles(ctx, pl.CompanyID); err != nil {
+					stats.Failed++
+					log.Printf("[%s] категоризация файлов company_id=%d: %v", src.Name(), pl.CompanyID, err)
+				}
+			}
 		}
 		return stats, ctx.Err()
 	}
@@ -106,13 +125,27 @@ func (r *Runner) runSource(ctx context.Context, src core.Source) (core.Stats, er
 		if exists && !r.force {
 			log.Printf("[%s] пропуск существующей компании: %s", src.Name(), company.URL)
 			stats.Skipped++
+			if r.afterCompany != nil {
+				id, err := r.db.CompanyID(company.Source, company.URL)
+				if err != nil {
+					return stats, err
+				}
+				c, err := r.db.LeadershipCompany(ctx, id)
+				if err != nil {
+					return stats, err
+				}
+				if err := r.afterCompany(ctx, c); err != nil {
+					stats.Failed++
+					log.Printf("[%s] обогащение company_id=%d: %v", src.Name(), id, err)
+				}
+			}
 			continue
 		}
 
 		id, err := r.db.SaveCompany(company)
 		if err != nil {
 			stats.Failed++
-			log.Printf("[%s] save company %s: %v", src.Name(), company.URL, err)
+			log.Printf("[%s] ошибка сохранения компании %s: %v", src.Name(), company.URL, err)
 			continue
 		}
 		stats.SavedCompanies++
@@ -126,6 +159,13 @@ func (r *Runner) runSource(ctx context.Context, src core.Source) (core.Stats, er
 				return stats, err
 			}
 		}
+		if r.afterCompany != nil {
+			c := leadership.Company{ID: id, Source: company.Source, Name: company.Name, INN: company.INN, OGRN: company.OGRN}
+			if err := r.afterCompany(ctx, c); err != nil {
+				stats.Failed++
+				log.Printf("[%s] обогащение company_id=%d: %v", src.Name(), id, err)
+			}
+		}
 		for i := range company.PriceLists {
 			if ctx.Err() != nil {
 				return stats, ctx.Err()
@@ -137,7 +177,7 @@ func (r *Runner) runSource(ctx context.Context, src core.Source) (core.Stats, er
 				path, err := storage.DownloadPriceFile(ctx, src.HTTPClient(), pl.URL, prefix)
 				if err != nil {
 					stats.Failed++
-					log.Printf("[%s] download %s: %v", src.Name(), pl.URL, err)
+					log.Printf("[%s] ошибка загрузки %s: %v", src.Name(), pl.URL, err)
 				} else {
 					pl.FilePath = path
 				}
@@ -146,11 +186,18 @@ func (r *Runner) runSource(ctx context.Context, src core.Source) (core.Stats, er
 			pl.CompanyID = id
 			if err := r.db.SavePriceList(*pl); err != nil {
 				stats.Failed++
-				log.Printf("[%s] save price: %v", src.Name(), err)
+				log.Printf("[%s] ошибка сохранения прайса: %v", src.Name(), err)
 				continue
 			}
 			if pl.Kind != "file" || pl.FilePath != "" {
 				stats.SavedPrices++
+			}
+		}
+
+		if r.afterFiles != nil {
+			if err := r.afterFiles(ctx, id); err != nil {
+				stats.Failed++
+				log.Printf("[%s] категоризация файлов company_id=%d: %v", src.Name(), id, err)
 			}
 		}
 

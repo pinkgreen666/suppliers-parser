@@ -70,7 +70,7 @@ func (p *ProductCenter) Parse(ctx context.Context) (<-chan models.Company, error
 			pageURL := fmt.Sprintf("%s?page=%d", startURL, page)
 			doc, err := p.fetch(ctx, pageURL)
 			if err != nil {
-				log.Printf("productcenter: listing %d: %v", page, err)
+				log.Printf("[productcenter] ошибка страницы %d: %v", page, err)
 				if ctx.Err() != nil || errors.Is(err, errBlocked) || strings.Contains(err.Error(), "status 404") {
 					return
 				}
@@ -93,7 +93,7 @@ func (p *ProductCenter) Parse(ctx context.Context) (<-chan models.Company, error
 
 				company, err := p.parseCompany(ctx, card.URL, card.Name)
 				if err != nil {
-					log.Printf("productcenter: company %s: %v", card.URL, err)
+					log.Printf("[productcenter] ошибка компании %s: %v", card.URL, err)
 					if ctx.Err() != nil || errors.Is(err, errBlocked) {
 						return
 					}
@@ -180,12 +180,7 @@ func (p *ProductCenter) parseCompany(ctx context.Context, companyURL, name strin
 				c.Telegram = "https://t.me/" + c.Telegram
 			}
 		case strings.Contains(label, "Электронная почта") || strings.Contains(label, "Email"):
-			if a := s.Find("a[href^='mailto:']").First(); a.Length() > 0 {
-				c.Email, _ = a.Attr("href")
-				c.Email = strings.TrimPrefix(c.Email, "mailto:")
-			} else {
-				c.Email = value
-			}
+			c.Email = parseEmail(s.Find("td").Eq(1))
 		case strings.Contains(label, "Инстаграм") || strings.Contains(label, "Instagram"):
 			// Could store if needed
 		case strings.Contains(label, "Официальный сайт") || strings.Contains(label, "Сайт"):
@@ -236,7 +231,7 @@ func (p *ProductCenter) parsePriceLists(ctx context.Context, doc *goquery.Docume
 func (p *ProductCenter) parseInlinePriceList(ctx context.Context, listingURL string) *models.PriceList {
 	productLinks, err := p.parseProductLinks(ctx, listingURL)
 	if err != nil {
-		log.Printf("productcenter: inline listing %s: %v", listingURL, err)
+		log.Printf("[productcenter] ошибка списка товаров %s: %v", listingURL, err)
 		return nil
 	}
 	if len(productLinks) == 0 {
@@ -248,7 +243,7 @@ func (p *ProductCenter) parseInlinePriceList(ctx context.Context, listingURL str
 		log.Printf("[%s] товар %d/%d: %s", sourceName, i+1, len(productLinks), productURL)
 		item, err := p.parseProductCard(ctx, productURL)
 		if err != nil {
-			log.Printf("productcenter: product %s: %v", productURL, err)
+			log.Printf("[productcenter] ошибка товара %s: %v", productURL, err)
 			if ctx.Err() != nil || errors.Is(err, errBlocked) {
 				return nil
 			}

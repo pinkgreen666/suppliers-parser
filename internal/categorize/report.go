@@ -91,10 +91,10 @@ func WriteReport(dir string, r Report) error {
 			}
 		}
 		if len(c.Products) == 0 {
-			fmt.Fprintln(&b, "\nВ листе «Товары» нет однозначно связанных товарных строк. Категория компании и название файла прайса не используются как доказательство.")
+			fmt.Fprintln(&b, "\nНет однозначно извлечённых товарных строк. Категория компании и название файла прайса не используются как доказательство.")
 			continue
 		}
-		fmt.Fprintln(&b, "\n| Строка Excel | Товар | Подобранные категории | Основание |\n|---|---|---|---|")
+		fmt.Fprintln(&b, "\n| Строка | Товар | Подобранные категории | Основание | Источник |\n|---|---|---|---|---|")
 		for _, p := range c.Products {
 			var names, evidence []string
 			for _, m := range p.Matches {
@@ -105,7 +105,11 @@ func WriteReport(dir string, r Report) error {
 				names = []string{"Не подобраны"}
 				evidence = []string{"Нужно проверить вручную или расширить словарь"}
 			}
-			fmt.Fprintf(&b, "| %d | %s | %s | %s |\n", p.Product.Row, escape(p.Product.Name), escape(strings.Join(names, "; ")), escape(strings.Join(evidence, "; ")))
+			source := p.Product.URL
+			if p.Product.SourceFile != "" {
+				source = fmt.Sprintf("%s; лист=%s; страница=%d; строка=%d", p.Product.SourceFile, p.Product.SourceSheet, p.Product.SourcePage, p.Product.SourceRow)
+			}
+			fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |\n", p.Product.Row, escape(p.Product.Name), escape(strings.Join(names, "; ")), escape(strings.Join(evidence, "; ")), escape(source))
 		}
 	}
 	return os.WriteFile(filepath.Join(dir, "report.md"), []byte(b.String()), 0644)

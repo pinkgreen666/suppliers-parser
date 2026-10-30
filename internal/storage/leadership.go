@@ -115,3 +115,14 @@ func (d *DB) SaveRecord(ctx context.Context, r leadership.Record) (leadership.Re
  ON CONFLICT(company_id) DO UPDATE SET lookup_key=excluded.lookup_key,status=excluded.status,result_json=excluded.result_json,attempted_at=excluded.attempted_at,last_error=excluded.last_error`, r.Company.ID, r.Key, r.Status, raw, r.AttemptedAt.Unix(), r.Error)
 	return r, err
 }
+
+func (d *DB) CompanyID(source, url string) (int64, error) {
+	var id int64
+	err := d.sql.QueryRow(`SELECT id FROM company WHERE source=? AND url=?`, source, url).Scan(&id)
+	return id, err
+}
+func (d *DB) LeadershipCompany(ctx context.Context, id int64) (leadership.Company, error) {
+	c := leadership.Company{ID: id}
+	err := d.sql.QueryRowContext(ctx, `SELECT source,COALESCE(name,''),COALESCE(inn,''),COALESCE(ogrn,'') FROM company WHERE id=?`, id).Scan(&c.Source, &c.Name, &c.INN, &c.OGRN)
+	return c, err
+}
