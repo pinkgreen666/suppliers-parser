@@ -1,0 +1,73 @@
+{
+  "provider": "dadata",
+  "dry_run": true,
+  "selected": 5,
+  "requests": 0,
+  "records": [
+    {
+      "company": {
+        "id": 1,
+        "source": "yopt",
+        "name": "Макси Стайл",
+        "inn": "7705334943",
+        "ogrn": "1027739620347"
+      },
+      "lookup_key": "inn:7705334943",
+      "status": "pending",
+      "attempted_at": "2026-10-28T08:51:15.472622912Z",
+      "cached": false
+    },
+    {
+      "company": {
+        "id": 2,
+        "source": "yopt",
+        "name": "Ozonator",
+        "inn": "450139791872",
+        "ogrn": "317450100001940"
+      },
+      "lookup_key": "inn:450139791872",
+      "status": "pending",
+      "attempted_at": "2026-10-28T08:51:15.472678059Z",
+      "cached": false
+    },
+    {
+      "company": {
+        "id": 3,
+        "source": "yopt",
+        "name": "Клинфикс",
+        "inn": "5029184511",
+        "ogrn": "1145029004262"
+      },
+      "lookup_key": "inn:5029184511",
+      "status": "pending",
+      "attempted_at": "2026-10-28T08:51:15.472681502Z",
+      "cached": false
+    },
+    {
+      "company": {
+        "id": 4,
+        "source": "yopt",
+        "name": "Востокэнерготранс ООО",
+        "inn": "1655495099",
+        "ogrn": "1231600023698"
+      },
+      "lookup_key": "inn:1655495099",
+      "status": "pending",
+      "attempted_at": "2026-10-28T08:51:15.472685176Z",
+      "cached": false
+    },
+    {
+      "company": {
+        "id": 5,
+        "source": "yopt",
+        "name": "ООО Лемус Про",
+        "inn": "9701085457",
+        "ogrn": "1177746892410"
+      },
+      "lookup_key": "inn:9701085457",
+      "status": "pending",
+      "attempted_at": "2026-10-28T08:51:15.472689063Z",
+      "cached": false
+    }
+  ]
+}

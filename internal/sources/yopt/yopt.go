@@ -8,16 +8,17 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
+
 	"suppliers-parser/internal/core"
 	"suppliers-parser/internal/models"
-	"time"
 
 	"github.com/PuerkitoBio/goquery"
 )
 
 const (
 	baseURL    = "https://yopt.org"
-	startURL   = "https://yopt.org/postavshiki/category/oborudovanie-instrument/region/rossiya"
+	startURL   = "https://yopt.org/postavshiki"
 	sourceName = "yopt"
 )
 
@@ -56,10 +57,10 @@ func (y *Yopt) Parse(ctx context.Context) (<-chan models.Company, error) {
 			}
 
 			pageURL := fmt.Sprintf("%s?page=%d", startURL, page)
-			doc, err := y.fetch(pageURL)
+			doc, err := y.fetch(ctx, pageURL)
 			if err != nil {
-				log.Printf("yopt: listing %d: %v", page, err)
-				if strings.Contains(err.Error(), "status 404") {
+				log.Printf("[yopt] ошибка страницы %d: %v", page, err)
+				if ctx.Err() != nil || strings.Contains(err.Error(), "status 404") {
 					return
 				}
 				continue
@@ -70,16 +71,21 @@ func (y *Yopt) Parse(ctx context.Context) (<-chan models.Company, error) {
 				return
 			}
 
-			for _, card := range cards {
+			log.Printf("[%s] страница %d: компаний=%d", sourceName, page, len(cards))
+			for i, card := range cards {
+				log.Printf("[%s] компания %d/%d: %s (%s)", sourceName, i+1, len(cards), card.Name, card.URL)
 				select {
 				case <-ctx.Done():
 					return
 				default:
 				}
 
-				company, err := y.parseCompany(card.URL, card.Name)
+				company, err := y.parseCompany(ctx, card.URL, card.Name)
 				if err != nil {
-					log.Printf("yopt: company %s: %v", card.URL, err)
+					log.Printf("[yopt] ошибка компании %s: %v", card.URL, err)
+					if ctx.Err() != nil {
+						return
+					}
 					continue
 				}
 
@@ -115,14 +121,14 @@ func (y *Yopt) parseListing(doc *goquery.Document) []card {
 	return cards
 }
 
-func (y *Yopt) parseCompany(companyURL, name string) (models.Company, error) {
+func (y *Yopt) parseCompany(ctx context.Context, companyURL, name string) (models.Company, error) {
 	c := models.Company{
 		Source: sourceName,
 		URL:    companyURL,
 		Name:   name,
 	}
 
-	doc, err := y.fetch(companyURL)
+	doc, err := y.fetch(ctx, companyURL)
 	if err != nil {
 		return c, err
 	}
@@ -180,11 +186,11 @@ func (y *Yopt) parseCompany(companyURL, name string) (models.Company, error) {
 		}
 	})
 
-	c.PriceLists = y.parsePriceLists(doc)
+	c.PriceLists = y.parsePriceLists(ctx, doc)
 	return c, nil
 }
 
-func (y *Yopt) parsePriceLists(doc *goquery.Document) []models.PriceList {
+func (y *Yopt) parsePriceLists(ctx context.Context, doc *goquery.Document) []models.PriceList {
 	var result []models.PriceList
 
 	doc.Find("div.prikrfiles a").Each(func(_ int, a *goquery.Selection) {
@@ -207,17 +213,17 @@ func (y *Yopt) parsePriceLists(doc *goquery.Document) []models.PriceList {
 	})
 
 	if href, ok := doc.Find("div.vsetovarypost a").Attr("href"); ok && href != "" {
-		if inline := y.parseInlinePriceList(y.absURL(href)); inline != nil {
+		if inline := y.parseInlinePriceList(ctx, y.absURL(href)); inline != nil {
 			result = append(result, *inline)
 		}
 	}
 	return result
 }
 
-func (y *Yopt) parseInlinePriceList(listingURL string) *models.PriceList {
-	productLinks, err := y.parseProductLinks(listingURL)
+func (y *Yopt) parseInlinePriceList(ctx context.Context, listingURL string) *models.PriceList {
+	productLinks, err := y.parseProductLinks(ctx, listingURL)
 	if err != nil {
-		log.Printf("yopt: inline listing %s: %v", listingURL, err)
+		log.Printf("[yopt] ошибка списка товаров %s: %v", listingURL, err)
 		return nil
 	}
 	if len(productLinks) == 0 {
@@ -225,11 +231,15 @@ func (y *Yopt) parseInlinePriceList(listingURL string) *models.PriceList {
 	}
 
 	var items []models.PriceItem
-	for _, productURL := range productLinks {
-		item, err := y.parseProductCard(productURL)
+	for i, productURL := range productLinks {
+		log.Printf("[%s] товар %d/%d: %s", sourceName, i+1, len(productLinks), productURL)
+		item, err := y.parseProductCard(ctx, productURL)
 		if err != nil {
-			log.Printf("yopt: product %s: %v", productURL, err)
-			continue
+			log.Printf("[yopt] ошибка товара %s: %v", productURL, err)
+			if ctx.Err() != nil {
+				return nil
+			}
+			return nil
 		}
 		if item.Name == "" {
 			continue
@@ -248,25 +258,62 @@ func (y *Yopt) parseInlinePriceList(listingURL string) *models.PriceList {
 	}
 }
 
-func (y *Yopt) parseProductLinks(listingURL string) ([]string, error) {
-	doc, err := y.fetch(listingURL)
-	if err != nil {
-		return nil, err
-	}
+func (y *Yopt) parseProductLinks(ctx context.Context, listingURL string) ([]string, error) {
 	var links []string
-	doc.Find("div.view-content div.views-row").Each(func(_ int, s *goquery.Selection) {
-		href, ok := s.Find("div.title-stroka .title a").Attr("href")
-		if !ok || href == "" {
-			return
+	seenPages := map[string]bool{}
+	seenProducts := map[string]bool{}
+	pageURL := listingURL
+	for pageURL != "" {
+		if seenPages[pageURL] {
+			return nil, fmt.Errorf("цикл пагинации: %s", pageURL)
 		}
-		links = append(links, y.absURL(href))
-	})
+		seenPages[pageURL] = true
+		doc, err := y.fetch(ctx, pageURL)
+		if err != nil {
+			return nil, err
+		}
+		doc.Find("div.view-content div.views-row").Each(func(_ int, s *goquery.Selection) {
+			href, ok := s.Find("div.title-stroka .title a").Attr("href")
+			if !ok || href == "" {
+				return
+			}
+			u := y.absURL(href)
+			if !seenProducts[u] {
+				seenProducts[u] = true
+				links = append(links, u)
+			}
+		})
+		log.Printf("[yopt] страница товаров=%d, всего ссылок=%d", len(seenPages), len(links))
+		next := ""
+		if href, ok := doc.Find("li.pager-next a, a[rel='next']").First().Attr("href"); ok {
+			current, _ := url.Parse(pageURL)
+			ref, err := url.Parse(href)
+			if err != nil {
+				return nil, err
+			}
+			target := current.ResolveReference(ref)
+			if target.Host != current.Host || target.Path != current.Path {
+				return nil, fmt.Errorf("неожиданная ссылка пагинации: %s", target)
+			}
+			next = target.String()
+		}
+		pageURL = next
+		if pageURL != "" {
+			timer := time.NewTimer(300 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			case <-timer.C:
+			}
+		}
+	}
 	return links, nil
 }
 
-func (y *Yopt) parseProductCard(productURL string) (models.PriceItem, error) {
+func (y *Yopt) parseProductCard(ctx context.Context, productURL string) (models.PriceItem, error) {
 	item := models.PriceItem{URL: productURL}
-	doc, err := y.fetch(productURL)
+	doc, err := y.fetch(ctx, productURL)
 	if err != nil {
 		return item, err
 	}
@@ -289,8 +336,14 @@ func (y *Yopt) parseProductCard(productURL string) (models.PriceItem, error) {
 	return item, nil
 }
 
-func (y *Yopt) fetch(rawURL string) (*goquery.Document, error) {
-	req, err := http.NewRequest("GET", rawURL, nil)
+func (y *Yopt) fetch(ctx context.Context, rawURL string) (doc *goquery.Document, err error) {
+	started := time.Now()
+	log.Printf("[%s] GET %s", sourceName, rawURL)
+	defer func() {
+		log.Printf("[%s] GET завершён за %s: %s, ошибка=%v", sourceName, time.Since(started).Round(time.Millisecond), rawURL, err)
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
 	if err != nil {
 		return nil, err
 	}
