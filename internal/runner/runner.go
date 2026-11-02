@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"suppliers-parser/internal/core"
 	"suppliers-parser/internal/leadership"
+	"suppliers-parser/internal/models"
 	"suppliers-parser/internal/storage"
 )
 
@@ -106,7 +108,47 @@ func (r *Runner) runSource(ctx context.Context, src core.Source) (core.Stats, er
 		return stats, ctx.Err()
 	}
 	log.Printf("[%s] парсинг сайта: force=%t", src.Name(), r.force)
-	ch, err := src.Parse(ctx)
+	var filteredSkipped, filteredFailed atomic.Int64
+	var filterErrMu sync.Mutex
+	var filterErr error
+	var ch <-chan models.Company
+	var err error
+	if filterable, ok := src.(core.ExistingCompanyFilter); ok && !r.force {
+		ch, err = filterable.ParseWithFilter(ctx, func(source, companyURL string) (bool, error) {
+			exists, err := r.db.Exists(source, companyURL)
+			if err != nil {
+				filterErrMu.Lock()
+				filterErr = err
+				filterErrMu.Unlock()
+				cancel()
+				return false, err
+			}
+			if !exists {
+				return false, nil
+			}
+			log.Printf("[%s] пропуск существующей компании: %s", src.Name(), companyURL)
+			filteredSkipped.Add(1)
+			if r.afterCompany != nil {
+				id, err := r.db.CompanyID(source, companyURL)
+				if err != nil {
+					filteredFailed.Add(1)
+					log.Printf("[%s] получение company_id для %s: %v", src.Name(), companyURL, err)
+				} else {
+					c, err := r.db.LeadershipCompany(ctx, id)
+					if err != nil {
+						filteredFailed.Add(1)
+						log.Printf("[%s] чтение компании company_id=%d: %v", src.Name(), id, err)
+					} else if err := r.afterCompany(ctx, c); err != nil {
+						filteredFailed.Add(1)
+						log.Printf("[%s] обогащение company_id=%d: %v", src.Name(), id, err)
+					}
+				}
+			}
+			return true, nil
+		})
+	} else {
+		ch, err = src.Parse(ctx)
+	}
 	if err != nil {
 		return stats, err
 	}
@@ -114,6 +156,13 @@ func (r *Runner) runSource(ctx context.Context, src core.Source) (core.Stats, er
 	for company := range ch {
 		select {
 		case <-ctx.Done():
+			stats.Skipped += int(filteredSkipped.Load())
+			stats.Failed += int(filteredFailed.Load())
+			filterErrMu.Lock()
+			defer filterErrMu.Unlock()
+			if filterErr != nil {
+				return stats, filterErr
+			}
 			return stats, ctx.Err()
 		default:
 		}
@@ -206,6 +255,13 @@ func (r *Runner) runSource(ctx context.Context, src core.Source) (core.Stats, er
 			return stats, ctx.Err()
 		case <-time.After(r.delay):
 		}
+	}
+	stats.Skipped += int(filteredSkipped.Load())
+	stats.Failed += int(filteredFailed.Load())
+	filterErrMu.Lock()
+	defer filterErrMu.Unlock()
+	if filterErr != nil {
+		return stats, filterErr
 	}
 
 	return stats, ctx.Err()

@@ -38,7 +38,7 @@ func init() {
 			client: &http.Client{
 				Timeout: 60 * time.Second,
 				Transport: &pacedTransport{
-					delay: 10 * time.Second,
+					delay: 5 * time.Second,
 					base: &http.Transport{
 						MaxIdleConns:        50,
 						MaxIdleConnsPerHost: 10,
@@ -55,6 +55,10 @@ func (p *ProductCenter) HTTPClient() *http.Client { return p.client }
 func (p *ProductCenter) Name() string { return sourceName }
 
 func (p *ProductCenter) Parse(ctx context.Context) (<-chan models.Company, error) {
+	return p.ParseWithFilter(ctx, nil)
+}
+
+func (p *ProductCenter) ParseWithFilter(ctx context.Context, shouldSkip func(source, url string) (bool, error)) (<-chan models.Company, error) {
 	out := make(chan models.Company)
 
 	go func() {
@@ -89,6 +93,16 @@ func (p *ProductCenter) Parse(ctx context.Context) (<-chan models.Company, error
 				case <-ctx.Done():
 					return
 				default:
+				}
+				if shouldSkip != nil {
+					skip, err := shouldSkip(sourceName, card.URL)
+					if err != nil {
+						log.Printf("[productcenter] проверка компании %s: %v", card.URL, err)
+						return
+					}
+					if skip {
+						continue
+					}
 				}
 
 				company, err := p.parseCompany(ctx, card.URL, card.Name)
